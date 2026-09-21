@@ -7,6 +7,7 @@ const PORT = process.env.PORT || 3456;
 // there's no CORS issue (CORS only applies to browser-to-server requests,
 // not server-to-server ones).
 const BACKEND_URL = 'http://45.129.243.5:30120/players.json';
+const FETCH_TIMEOUT_MS = 8000;
 
 // how long a player who disconnected stays visible in the list, marked
 // as "left", before being dropped entirely
@@ -71,7 +72,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Proxy endpoint — the browser calls THIS (same-origin), not the game server
 app.get('/api/players', async (req, res) => {
   try {
-    const resp = await fetch(BACKEND_URL);
+    // give up after a few seconds instead of leaving the page stuck on
+    // "CHECKING" when the game server never answers
+    const resp = await fetch(BACKEND_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error(`players.json returned HTTP ${resp.status}`);
     const liveList = await resp.json();
 
@@ -80,8 +83,11 @@ app.get('/api/players', async (req, res) => {
     const players = [...roster.values()];
     res.json({ players, leaveGraceMs: LEAVE_GRACE_MS });
   } catch (err) {
-    console.error('players.json fetch error:', err.message);
-    res.status(502).json({ error: err.message });
+    const msg = err.name === 'TimeoutError'
+      ? `players.json did not respond within ${FETCH_TIMEOUT_MS / 1000}s`
+      : err.message;
+    console.error('players.json fetch error:', msg);
+    res.status(502).json({ error: msg });
   }
 });
 

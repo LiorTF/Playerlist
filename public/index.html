@@ -614,13 +614,27 @@ let sortDir = 1;              // 1 = ascending, -1 = descending
 
 async function fetchBackendData(){
   const res = await fetch(CONFIG.BACKEND_URL, { cache: 'no-store' });
-  if(!res.ok) throw new Error('backend http ' + res.status);
+  if(!res.ok){
+    // server.js sends { error } on failure — show the real reason
+    let detail = '';
+    try{ detail = (await res.json()).error || ''; }catch(e){}
+    throw new Error(detail || ('backend http ' + res.status));
+  }
   const data = await res.json();
   // server.js already normalizes the shape to { players: [{id,name,ping,discordId}] }
   return data.players || [];
 }
 
+// skip a refresh tick if the previous request is still in flight, so a
+// slow game server doesn't pile up overlapping requests
+let loading = false;
 async function loadAll(){
+  if(loading) return;
+  loading = true;
+  try{ await loadAllInner(); }finally{ loading = false; }
+}
+
+async function loadAllInner(){
   const hostline = document.getElementById('hostline');
   const dot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
